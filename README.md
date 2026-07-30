@@ -8,7 +8,11 @@ Combina **RAWG** (metadatos) y **CheapShark** (precios) en una sola API REST tip
 Proyecto de portafolio construido con **Spec-Driven Development (Contract-First)**:
 OpenAPI primero, código después.
 
-> 🔗 **Demo en vivo**: _pendiente de deploy — ver sección [Deploy](#deploy)_
+> 🔗 **Demo en vivo**:
+> - **Swagger UI**: https://gamedeal-hub.onrender.com/docs
+> - **Búsqueda de ejemplo**: https://gamedeal-hub.onrender.com/api/v1/games/search?title=witcher&limit=5
+>
+> _Hosted on Render free tier — el primer request tras 15 min de inactividad puede tardar ~30s en despertar. Currently running with a RAWG placeholder key, so `rating`/`release_date`/`genres` come back `null`; deals from CheapShark are real._
 
 ## Stack
 - Node.js + TypeScript (strict)
