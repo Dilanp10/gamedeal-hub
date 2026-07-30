@@ -4,7 +4,7 @@
   "private": true,
   "description": "Game deals aggregator API — portfolio project using Spec-Driven Development",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
