@@ -1,0 +1,256 @@
+openapi: 3.0.3
+info:
+  title: GameDeal Hub API
+  version: 1.0.0
+  description: |-
+    API REST que agrega y unifica información de videojuegos y ofertas en tiempo real
+    combinando RAWG (metadatos) y CheapShark (precios).
+
+    Construida con Spec-Driven Development (Contract-First).
+servers:
+  - url: http://localhost:3000
+    description: Entorno de desarrollo local
+tags:
+  - name: Games
+    description: Búsqueda y consulta unificada de videojuegos con ofertas.
+  - name: System
+    description: Endpoints operativos (health, docs).
+components:
+  schemas:
+    Deal:
+      type: object
+      properties:
+        store:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Nombre de la tienda (Steam, Epic, GOG, etc.).
+          example: Steam
+        price:
+          type: number
+          minimum: 0
+          description: Precio actual (con descuento si aplica).
+          format: float
+          example: 9.99
+        original_price:
+          type: number
+          nullable: true
+          minimum: 0
+          description: Precio original antes del descuento.
+          format: float
+          example: 39.99
+        currency:
+          type: string
+          default: USD
+          description: Código ISO 4217. CheapShark trabaja en USD.
+          example: USD
+        discount_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Porcentaje de descuento (0 si no hay oferta).
+          format: float
+          example: 75
+        deal_url:
+          type: string
+          format: uri
+          description: URL de redirección de CheapShark a la tienda.
+          example: https://www.cheapshark.com/redirect?dealID=XYZ123
+      required:
+        - store
+        - price
+        - currency
+        - discount_percentage
+        - deal_url
+      description: Oferta activa de un videojuego en una tienda.
+    Game:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ID interno unificado de GameDeal Hub (slug estable).
+          example: the-witcher-3-wild-hunt
+        title:
+          type: string
+          example: The Witcher 3 Wild Hunt
+        cover_image:
+          type: string
+          nullable: true
+          format: uri
+          example: https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg
+        rating:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 5
+          description: Calificación normalizada 0-5 (fuente RAWG).
+          format: float
+          example: 4.66
+        release_date:
+          type: string
+          nullable: true
+          format: date
+          example: '2015-05-18'
+        genres:
+          type: array
+          items:
+            type: string
+          example:
+            - RPG
+            - Adventure
+        deals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deal'
+          description: Ofertas activas ordenadas por mejor precio.
+      required:
+        - id
+        - title
+        - genres
+        - deals
+      description: Videojuego con metadatos unificados y ofertas activas.
+    SearchMeta:
+      type: object
+      properties:
+        query:
+          type: string
+          example: The Witcher 3
+        count:
+          type: integer
+          minimum: 0
+          example: 3
+        sources:
+          type: array
+          items:
+            type: string
+            enum:
+              - rawg
+              - cheapshark
+          example:
+            - rawg
+            - cheapshark
+      required:
+        - query
+        - count
+        - sources
+    SearchGamesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Game'
+        meta:
+          $ref: '#/components/schemas/SearchMeta'
+      required:
+        - data
+        - meta
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Parámetros de entrada inválidos.
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    example: title
+                  issue:
+                    type: string
+                    example: El parámetro "title" es obligatorio y debe tener al menos 2 caracteres.
+                required:
+                  - field
+                  - issue
+          required:
+            - code
+            - message
+            - details
+      required:
+        - error
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - INTERNAL_ERROR
+                - UPSTREAM_ERROR
+                - NOT_FOUND
+              example: UPSTREAM_ERROR
+            message:
+              type: string
+              example: No se pudo obtener información de la fuente externa (RAWG).
+            request_id:
+              type: string
+              nullable: true
+              format: uuid
+              example: 3f9c2b6e-1a4a-4a2e-9c1f-2b0e5f7a1d10
+          required:
+            - code
+            - message
+      required:
+        - error
+  parameters: {}
+paths:
+  /api/v1/games/search:
+    get:
+      tags:
+        - Games
+      operationId: searchGames
+      summary: Busca videojuegos por título y devuelve metadatos + ofertas unificadas.
+      description: >-
+        Consulta RAWG (metadatos) y CheapShark (ofertas) en paralelo, normaliza ambas respuestas al esquema Game y
+        devuelve una lista deduplicada. Si un juego no tiene ofertas activas, deals será un arreglo vacío.
+      parameters:
+        - schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            description: Título (o parte del título) del videojuego a buscar. Mínimo 2 caracteres.
+            example: The Witcher 3
+          required: true
+          name: title
+          in: query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+            description: Cantidad máxima de juegos a devolver.
+          required: false
+          name: limit
+          in: query
+      responses:
+        '200':
+          description: Lista de juegos encontrados (puede estar vacía).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchGamesResponse'
+        '400':
+          description: Parámetros de entrada inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: Error interno o falla al consultar una fuente externa.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

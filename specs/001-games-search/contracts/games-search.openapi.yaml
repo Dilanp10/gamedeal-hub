@@ -1,0 +1,303 @@
+openapi: 3.0.3
+
+info:
+  title: GameDeal Hub API
+  version: 1.0.0
+  description: |
+    API REST que agrega y unifica información de videojuegos y ofertas en tiempo real
+    combinando dos fuentes públicas:
+      - RAWG API: metadatos, portada, calificación, fecha de lanzamiento, géneros.
+      - CheapShark API: precios actuales, descuentos y tiendas (Steam, Epic, GOG, etc.).
+
+    Proyecto de portafolio construido bajo la metodología Spec-Driven Development (SDD)
+    / Contract-First: este archivo es la fuente de verdad del contrato público.
+  contact:
+    name: GameDeal Hub
+    url: https://github.com/tu-usuario/gamedeal-hub
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Entorno de desarrollo local
+  - url: https://gamedeal-hub.example.com
+    description: Producción (placeholder)
+
+tags:
+  - name: Games
+    description: Búsqueda y consulta unificada de videojuegos con ofertas.
+  - name: System
+    description: Endpoints operativos (health, docs).
+
+paths:
+  /api/v1/games/search:
+    get:
+      tags: [Games]
+      operationId: searchGames
+      summary: Busca videojuegos por título y devuelve metadatos + ofertas unificadas.
+      description: |
+        Consulta RAWG (metadatos) y CheapShark (ofertas) en paralelo, normaliza ambas
+        respuestas al esquema `Game` definido en este contrato y devuelve una lista
+        deduplicada. Si un juego no tiene ofertas activas, `deals` será un arreglo vacío.
+      parameters:
+        - $ref: '#/components/parameters/TitleQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Lista de juegos encontrados (puede estar vacía).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchGamesResponse'
+              examples:
+                witcher:
+                  $ref: '#/components/examples/WitcherSearchExample'
+        '400':
+          description: Parámetros de entrada inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              examples:
+                titleFaltante:
+                  $ref: '#/components/examples/MissingTitleExample'
+        '500':
+          description: Error interno o falla al consultar una fuente externa.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                upstreamFailure:
+                  $ref: '#/components/examples/UpstreamFailureExample'
+
+components:
+
+  parameters:
+    TitleQuery:
+      name: title
+      in: query
+      required: true
+      description: Título (o parte del título) del videojuego a buscar. Mínimo 2 caracteres.
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 100
+        example: The Witcher 3
+
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      description: Cantidad máxima de juegos a devolver.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+
+  schemas:
+
+    SearchGamesResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Game'
+        meta:
+          $ref: '#/components/schemas/SearchMeta'
+
+    SearchMeta:
+      type: object
+      required: [query, count, sources]
+      properties:
+        query:
+          type: string
+          example: The Witcher 3
+        count:
+          type: integer
+          minimum: 0
+          example: 3
+        sources:
+          type: array
+          items:
+            type: string
+            enum: [rawg, cheapshark]
+          example: [rawg, cheapshark]
+
+    Game:
+      type: object
+      required: [id, title, deals]
+      properties:
+        id:
+          type: string
+          description: ID interno unificado de GameDeal Hub (slug estable).
+          example: the-witcher-3-wild-hunt
+        title:
+          type: string
+          example: The Witcher 3 Wild Hunt
+        cover_image:
+          type: string
+          format: uri
+          nullable: true
+          example: https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg
+        rating:
+          type: number
+          format: float
+          nullable: true
+          minimum: 0
+          maximum: 5
+          description: Calificación normalizada 0-5 (fuente RAWG).
+          example: 4.66
+        release_date:
+          type: string
+          format: date
+          nullable: true
+          example: '2015-05-18'
+        genres:
+          type: array
+          items:
+            type: string
+          example: [RPG, Adventure]
+        deals:
+          type: array
+          description: Ofertas activas ordenadas por mejor precio.
+          items:
+            $ref: '#/components/schemas/Deal'
+
+    Deal:
+      type: object
+      required: [store, price, currency, discount_percentage, deal_url]
+      properties:
+        store:
+          type: string
+          description: Nombre de la tienda (Steam, Epic, GOG, etc.).
+          example: Steam
+        price:
+          type: number
+          format: float
+          minimum: 0
+          description: Precio actual (con descuento si aplica).
+          example: 9.99
+        original_price:
+          type: number
+          format: float
+          nullable: true
+          minimum: 0
+          description: Precio original antes del descuento.
+          example: 39.99
+        currency:
+          type: string
+          description: Código ISO 4217. CheapShark trabaja en USD.
+          example: USD
+          default: USD
+        discount_percentage:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: Porcentaje de descuento (0 si no hay oferta).
+          example: 75
+        deal_url:
+          type: string
+          format: uri
+          description: URL de redirección de CheapShark a la tienda.
+          example: https://www.cheapshark.com/redirect?dealID=XYZ123
+
+    ValidationErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR]
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Parámetros de entrada inválidos.
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, issue]
+                properties:
+                  field:
+                    type: string
+                    example: title
+                  issue:
+                    type: string
+                    example: El parámetro "title" es obligatorio y debe tener al menos 2 caracteres.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INTERNAL_ERROR, UPSTREAM_ERROR, NOT_FOUND]
+              example: UPSTREAM_ERROR
+            message:
+              type: string
+              example: No se pudo obtener información de la fuente externa (RAWG).
+            request_id:
+              type: string
+              nullable: true
+              example: 3f9c2b6e-1a4a-4a2e-9c1f-2b0e5f7a1d10
+
+  examples:
+
+    WitcherSearchExample:
+      summary: Búsqueda exitosa de "witcher"
+      value:
+        data:
+          - id: the-witcher-3-wild-hunt
+            title: The Witcher 3 Wild Hunt
+            cover_image: https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg
+            rating: 4.66
+            release_date: '2015-05-18'
+            genres: [RPG, Adventure]
+            deals:
+              - store: GOG
+                price: 9.99
+                original_price: 39.99
+                currency: USD
+                discount_percentage: 75
+                deal_url: https://www.cheapshark.com/redirect?dealID=ABC123
+              - store: Steam
+                price: 11.99
+                original_price: 39.99
+                currency: USD
+                discount_percentage: 70
+                deal_url: https://www.cheapshark.com/redirect?dealID=DEF456
+        meta:
+          query: witcher
+          count: 1
+          sources: [rawg, cheapshark]
+
+    MissingTitleExample:
+      summary: Falta el parámetro title
+      value:
+        error:
+          code: VALIDATION_ERROR
+          message: Parámetros de entrada inválidos.
+          details:
+            - field: title
+              issue: El parámetro "title" es obligatorio y debe tener al menos 2 caracteres.
+
+    UpstreamFailureExample:
+      summary: Falla al consultar RAWG
+      value:
+        error:
+          code: UPSTREAM_ERROR
+          message: No se pudo obtener información de la fuente externa (RAWG).
+          request_id: 3f9c2b6e-1a4a-4a2e-9c1f-2b0e5f7a1d10
